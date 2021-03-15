@@ -1,0 +1,89 @@
+library(rvest)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+trim <- function( x ) {
+  gsub("(^[[:space:]]+|[[:space:]]+$)", "", x)
+}
+
+date <- c("2006", "2007", "2008", "2009", "2010", "2011", 
+        "2012", "2013", "2014", "2015", "2016", "2017", "2018", "2019", "2020")
+all_movies<-data.frame(Release=character(), date=character())
+
+for(i in 1:length(date)){
+  #Website to scrap
+  theurl<-paste0("https://www.boxofficemojo.com/year/",date[i],"/?grossesOption=calendarGrosses") 
+
+  html<- read_html(theurl)
+
+  get_list<-html_nodes(html, "table") 
+
+  table_m<-html_table(get_list)
+
+  movies<-data.frame(table_m[[1]][["Release"]]) 
+  movies<-movies %>% dplyr::rename(Movie_Name=1)
+
+  movies$date<-date[i]
+
+  movies2 <- slice(movies, 1)
+
+#Build Container for links
+all_links<-data.frame(html=character()) 
+    for(j in 1:nrow(movies2)){
+      get_links<-html_nodes(html, paste0("tr~ tr .a-link-normal")) %>% html_attr("href") 
+      link<-data.frame(get_links[1])
+      link<-link %>% dplyr::rename(html=1)
+      all_links<-rbind(all_links, link) #Bind All Link Data
+}
+
+#Column Bind player data and links
+movies2<-cbind(movies2, all_links)
+
+all_movies<-rbind(all_movies, movies2)  #Bind all players into one table
+
+print(paste0("Finished Date: ", date[i])) #See where we are in the process
+}
+
+
+movies<-all_movies$Movie_Name
+date<-all_movies$date
+
+path<-all_movies$html
+
+info<-data.frame(Date=numeric(), DOW=character(), Rank=character(), Daily=numeric(), '%+/-YD'=character(), 
+                 '%+/-LW'=character(), Theaters=character(), AVG=character(), To_Date=character(), Day =character(), estimated = character())
+
+
+page_html<-paste0("https://www.boxofficemojo.com",path, sep="")
+
+for(i in 1:nrow(all_movies)){
+  tryCatch({
+    list<- read_html(page_html[i])
+    stats <- html_node(list, "table")
+    stats_table <- html_table(stats)
+    
+    stats_table2 <- slice(stats_table, 1)
+    
+    stats_table2$Movies<-movies[i]
+    
+    stats_table2$Date <- date [i]
+    
+    info<-rbind(info, stats_table2)
+    
+    print(paste0("Finished with: ", date[i]))
+    
+  }, error=function(e){cat(conditionMessage(e))})
+}
+
+info$Daily <- gsub("[[:punct:][:blank:]]", "", info$Daily)
+info$Daily <- as.numeric(info$Daily)
+
+graph <- ggplot(info, aes(x = date, y = Daily, group = 1)) +
+  geom_line() + geom_point() + ylim(0, 200000000) 
+
+graph + scale_y_continuous(labels = comma) + labs(y = "Daily (in $)" , x = "Year") + 
+  ggtitle("Highest Grossing Movies (Opening Day)") +  theme(plot.title = element_text(hjust = 0.5))
+
+       
